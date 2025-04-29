@@ -83,3 +83,4 @@ jobs:
           az webapp start \
             --name traveltdea \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }}
+
