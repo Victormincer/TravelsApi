@@ -53,33 +53,33 @@ jobs:
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_… }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_… }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_… }}
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_0CF8894F205845E489A0043A242A61A7 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_A631665D61754544821094F75E2BF8AD }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_F519E6C34B3A4D08988CAC934AD2087B }}
 
-      - name: Stop Web App (cancela despliegues en curso)
-        run: az webapp stop \
-               --name traveltdea \
-               --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }}
-        # Detener la Web App aborta inmediatamente cualquier deployment activo :contentReference[oaicite:0]{index=0}.
+      - name: Stop Web App (abort active deployments)
+        run: |
+          az webapp stop \
+            --name traveltdea \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }}
 
-      - name: Eliminar setting WEBSITE_RUN_FROM_PACKAGE
-        run: az webapp config appsettings delete \
-               --name traveltdea \
-               --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-               --setting-names WEBSITE_RUN_FROM_PACKAGE
-        # Evita que OneDeploy monte la app en modo “run from package” y bloquee archivos :contentReference[oaicite:1]{index=1}.
+      - name: Remove run-from-package setting
+        run: |
+          az webapp config appsettings delete \
+            --name traveltdea \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --setting-names WEBSITE_RUN_FROM_PACKAGE
 
       - name: Zip Deploy via Azure CLI
-        run: az webapp deploy \
-               --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-               --name traveltdea \
-               --src-path release.zip \
-               --type zip
-        # Usa Kudu ZipDeploy, que libera el lock de archivos tras desplegar :contentReference[oaicite:2]{index=2}.
+        run: |
+          az webapp deploy \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --name traveltdea \
+            --src-path release.zip \
+            --type zip
 
       - name: Start Web App
-        run: az webapp start \
-               --name traveltdea \
-               --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }}
-        # Vuelve a poner en marcha la app con la versión nueva :contentReference[oaicite:3]{index=3}.
+        run: |
+          az webapp start \
+            --name traveltdea \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }}
