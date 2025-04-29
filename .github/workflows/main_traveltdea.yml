@@ -53,7 +53,24 @@ jobs:
           mkdir -p kudu
           echo "${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}" > kudu/profile.publishsettings
 
-      - name: Clean previous deployments
+      - name: Extract app name
+        id: extract-info
+        run: |
+          APP_NAME=$(grep -oP 'publishMethod="MSDeploy".*?siteName="\K[^"]+' kudu/profile.publishsettings)
+          echo "app-name=$APP_NAME" >> $GITHUB_OUTPUT
+
+      - name: Azure CLI login
+        uses: azure/login@v2
+        with:
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+
+      - name: Stop Web App
+        run: |
+          az webapp stop \
+            --name ${{ steps.extract-info.outputs.app-name }} \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }}
+
+      - name: Clean previous deployments via Kudu
         run: |
           if ! command -v jq &> /dev/null; then
             echo "Installing jq..."
@@ -61,34 +78,38 @@ jobs:
           fi
 
           XML="kudu/profile.publishsettings"
-          USERNAME=$(grep -oP 'publishMethod="MSDeploy".*?userName="\K[^"]+' $XML) || true
-          PASSWORD=$(grep -oP 'publishMethod="MSDeploy".*?userPWD="\K[^"]+' $XML) || true
-          PUBLISHURL=$(grep -oP 'publishMethod="MSDeploy".*?publishUrl="\K[^"]+' $XML) || true
+          USERNAME=$(grep -oP 'publishMethod="MSDeploy".*?userName="\K[^"]+' $XML)
+          PASSWORD=$(grep -oP 'publishMethod="MSDeploy".*?userPWD="\K[^"]+' $XML)
+          PUBLISHURL=$(grep -oP 'publishMethod="MSDeploy".*?publishUrl="\K[^"]+' $XML)
 
           if [[ -z "$USERNAME" || -z "$PASSWORD" || -z "$PUBLISHURL" ]]; then
             echo "No MSDeploy profile found or failed to parse publishsettings. Skipping cleanup."
             exit 0
           fi
 
-          HOST=$(echo "$PUBLISHURL" | sed -E 's|^https?://||; s|:.*||; s|/.*||')
-          echo "Cleaning deployments on Kudu host: $HOST"
+          KUDU_HOST=$(echo "$PUBLISHURL" | sed -E 's|:443||' | sed -E 's|msdeploy.*|scm.azurewebsites.net|')
+          echo "Cleaning deployments on: https://$KUDU_HOST"
 
-          DEP_IDS=$(curl -s -u "$USERNAME:$PASSWORD" https://$HOST/api/deployments | jq -r '.[].id')
-          if [[ -z "$DEP_IDS" ]]; then
-            echo "No deployments to delete."
-            exit 0
-          fi
+          DEP_IDS=$(curl -s -u "$USERNAME:$PASSWORD" https://$KUDU_HOST/api/deployments | jq -r '.[].id')
 
           for id in $DEP_IDS; do
             echo "Deleting deployment $id"
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" -u "$USERNAME:$PASSWORD" -X DELETE https://$HOST/api/deployments/$id)
-            echo " -> HTTP $STATUS"
+            curl -s -X DELETE -u "$USERNAME:$PASSWORD" https://$KUDU_HOST/api/deployments/$id
           done
+
+      - name: Wait to avoid conflict
+        run: sleep 10
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: release.zip
+
+      - name: Start Web App
+        run: |
+          az webapp start \
+            --name ${{ steps.extract-info.outputs.app-name }} \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }}
 
 
