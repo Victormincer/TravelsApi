@@ -28,7 +28,7 @@ jobs:
           npm run test --if-present
 
       - name: Zip artifact
-        run: zip release.zip ./* -r
+        run: zip -r release.zip .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -48,45 +48,52 @@ jobs:
         with:
           name: node-app
 
-      - name: Prepare publish profile
+      - name: Save publish profile
         run: |
           mkdir -p kudu
           echo "${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}" > kudu/profile.publishsettings
 
-      - name: Clean previous deployments
+      - name: Extract app name & resource group
+        id: app-info
         run: |
-          if ! command -v jq &> /dev/null; then
-            echo "Installing jq..."
-            sudo apt-get update && sudo apt-get install -y jq
-          fi
+          APP_NAME=$(xmllint --xpath 'string(//publishProfile[@publishMethod="MSDeploy"]/@siteName)' kudu/profile.publishsettings)
+          echo "app_name=$APP_NAME" >> "$GITHUB_OUTPUT"
+          echo "resource_group=${{ secrets.AZURE_RESOURCE_GROUP }}" >> "$GITHUB_OUTPUT"
 
-          XML="kudu/profile.publishsettings"
-          USERNAME=$(grep -oP 'publishMethod="MSDeploy".*?userName="\K[^"]+' $XML) || true
-          PASSWORD=$(grep -oP 'publishMethod="MSDeploy".*?userPWD="\K[^"]+' $XML) || true
-          PUBLISHURL=$(grep -oP 'publishMethod="MSDeploy".*?publishUrl="\K[^"]+' $XML) || true
-
-          if [[ -z "$USERNAME" || -z "$PASSWORD" || -z "$PUBLISHURL" ]]; then
-            echo "No MSDeploy profile found or failed to parse publishsettings. Skipping cleanup."
-            exit 0
-          fi
-
-          HOST=$(echo "$PUBLISHURL" | sed -E 's|^https?://||; s|:.*||; s|/.*||')
-          echo "Cleaning deployments on Kudu host: $HOST"
-
-          DEP_IDS=$(curl -s -u "$USERNAME:$PASSWORD" https://$HOST/api/deployments | jq -r '.[].id')
-          if [[ -z "$DEP_IDS" ]]; then
-            echo "No deployments to delete."
-            exit 0
-          fi
-
-          for id in $DEP_IDS; do
-            echo "Deleting deployment $id"
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" -u "$USERNAME:$PASSWORD" -X DELETE https://$HOST/api/deployments/$id)
-            echo " -> HTTP $STATUS"
-          done
-
-      - name: Deploy to Azure Web App
-        uses: azure/webapps-deploy@v3
+      - name: Azure CLI login
+        uses: azure/login@v2
         with:
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: release.zip
+
+      - name: Stop Web App
+        run: |
+          az webapp stop \
+            --name ${{ steps.app-info.outputs.app_name }} \
+            --resource-group ${{ steps.app-info.outputs.resource_group }}
+
+      - name: Remove run-from-package (OneDeploy) setting
+        run: |
+          az webapp config appsettings delete \
+            --name ${{ steps.app-info.outputs.app_name }} \
+            --resource-group ${{ steps.app-info.outputs.resource_group }} \
+            --setting-names WEBSITE_RUN_FROM_PACKAGE
+        # Elimina el setting que monta el ZIP en modo solo-lectura y dispara OneDeploy :contentReference[oaicite:2]{index=2}
+
+      - name: Wait for app to stop
+        run: sleep 10
+
+      - name: ZIP Deploy via Azure CLI
+        run: |
+          az webapp deploy \
+            --resource-group ${{ steps.app-info.outputs.resource_group }} \
+            --name ${{ steps.app-info.outputs.app_name }} \
+            --type zip \
+            --src-path release.zip
+        # Usa Kudu ZipDeploy para reemplazar contenido sin conflictos :contentReference[oaicite:3]{index=3}
+
+      - name: Start Web App
+        run: |
+          az webapp start \
+            --name ${{ steps.app-info.outputs.app_name }} \
+            --resource-group ${{ steps.app-info.outputs.resource_group }}
+
