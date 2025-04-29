@@ -1,5 +1,6 @@
 # Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
 # More GitHub Actions for Azure: https://github.com/Azure/actions
+
 name: Build and deploy Node.js app to Azure Web App - traveltdea
 
 on:
@@ -48,68 +49,18 @@ jobs:
         with:
           name: node-app
 
-      - name: Prepare publish profile
+      - name: Save publish profile
         run: |
-          mkdir -p kudu
           echo "${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}" > kudu/profile.publishsettings
 
-      - name: Extract app name
+      - name: Extract app name from publishsettings
         id: extract-info
         run: |
-          APP_NAME=$(grep -oP 'publishMethod="MSDeploy".*?siteName="\K[^"]+' kudu/profile.publishsettings)
-          echo "app-name=$APP_NAME" >> $GITHUB_OUTPUT
+          APP_NAME=$(xmllint --xpath 'string(//publishProfile[@publishMethod="MSDeploy"]/@siteName)' kudu/profile.publishsettings)
+          echo "app-name=$APP_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Azure CLI login
-        uses: azure/login@v2
-        with:
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-
-      - name: Stop Web App
+      - name: Extract Kudu credentials and host
+        id: kudu-info
         run: |
-          az webapp stop \
-            --name ${{ steps.extract-info.outputs.app-name }} \
-            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }}
-
-      - name: Clean previous deployments via Kudu
-        run: |
-          if ! command -v jq &> /dev/null; then
-            echo "Installing jq..."
-            sudo apt-get update && sudo apt-get install -y jq
-          fi
-
-          XML="kudu/profile.publishsettings"
-          USERNAME=$(grep -oP 'publishMethod="MSDeploy".*?userName="\K[^"]+' $XML)
-          PASSWORD=$(grep -oP 'publishMethod="MSDeploy".*?userPWD="\K[^"]+' $XML)
-          PUBLISHURL=$(grep -oP 'publishMethod="MSDeploy".*?publishUrl="\K[^"]+' $XML)
-
-          if [[ -z "$USERNAME" || -z "$PASSWORD" || -z "$PUBLISHURL" ]]; then
-            echo "No MSDeploy profile found or failed to parse publishsettings. Skipping cleanup."
-            exit 0
-          fi
-
-          KUDU_HOST=$(echo "$PUBLISHURL" | sed -E 's|:443||' | sed -E 's|msdeploy.*|scm.azurewebsites.net|')
-          echo "Cleaning deployments on: https://$KUDU_HOST"
-
-          DEP_IDS=$(curl -s -u "$USERNAME:$PASSWORD" https://$KUDU_HOST/api/deployments | jq -r '.[].id')
-
-          for id in $DEP_IDS; do
-            echo "Deleting deployment $id"
-            curl -s -X DELETE -u "$USERNAME:$PASSWORD" https://$KUDU_HOST/api/deployments/$id
-          done
-
-      - name: Wait to avoid conflict
-        run: sleep 10
-
-      - name: Deploy to Azure Web App
-        uses: azure/webapps-deploy@v3
-        with:
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: release.zip
-
-      - name: Start Web App
-        run: |
-          az webapp start \
-            --name ${{ steps.extract-info.outputs.app-name }} \
-            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }}
-
-
+          USERNAME=$(xmllint --xpath 'string(//publishProfile[@publishMethod="MSDeploy"]/@userName)' kudu/profile.publishsettings)
+          PASSWORD=$(xmllint --xpath 'string(//publishProfile[@publishMethod="MSDeploy"]/@user
