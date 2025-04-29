@@ -69,7 +69,6 @@ jobs:
           az webapp stop \
             --name traveltdea \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            --slot Production
         # az webapp stop detiene la App Service y cancela cualquier despliegue en curso :contentReference[oaicite:0]{index=0}
 
       - name: Deploy to Azure Web App
@@ -85,5 +84,4 @@ jobs:
           az webapp start \
             --name traveltdea \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            --slot Production
         # az webapp start vuelve a poner en marcha la App Service tras el deploy :contentReference[oaicite:1]{index=1}
